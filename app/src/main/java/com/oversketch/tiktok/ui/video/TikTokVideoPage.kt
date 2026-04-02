@@ -53,7 +53,10 @@ fun TikTokVideoPage(
     // Initialize player
     DisposableEffect(videoController) {
         videoController.initialize()
-        onDispose { }
+        onDispose { 
+            // 页面销毁时暂停，但不要release（因为controller会被复用）
+            videoController.pause()
+        }
     }
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -72,10 +75,15 @@ fun TikTokVideoPage(
                             ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.MATCH_PARENT
                         )
+                        // 初始绑定player
+                        player = exoPlayer
                     }
                 },
                 update = { playerView ->
-                    playerView.player = exoPlayer
+                    // 关键：每次重组时重新绑定player！
+                    if (playerView.player != exoPlayer) {
+                        playerView.player = exoPlayer
+                    }
                 },
                 modifier = Modifier.fillMaxSize()
             )

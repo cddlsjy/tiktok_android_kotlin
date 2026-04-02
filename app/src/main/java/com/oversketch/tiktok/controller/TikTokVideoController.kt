@@ -46,6 +46,12 @@ class TikTokVideoController(
                     _isPrepared = true
                 }
             }
+            
+            // 添加错误处理
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                android.util.Log.e("TikTokVideoController", "播放错误: ${error.message}")
+                // 可以在这里添加重试逻辑或显示错误提示
+            }
         })
     }
 
