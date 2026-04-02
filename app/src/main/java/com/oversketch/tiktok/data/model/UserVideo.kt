@@ -9,16 +9,20 @@ data class UserVideo(
     val desc: String? = null
 ) {
     companion object {
-        // Sample video URLs for testing (replacing unavailable ones)
+        // 更可靠的测试视频URL（多源备份）
         private val sampleVideos = listOf(
+            // 字节跳动/火山引擎官方测试视频（国内可访问）
+            "https://ark-project.tos-cn-beijing.volces.com/doc_video/ark_vlm_video_input.mp4",
+            "https://ark-project.tos-cn-beijing.volces.com/doc_video/video-understanding.mp4",
+            
+            // 国际通用测试视频（Google Storage，部分网络可能无法访问）
             "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
             "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
             "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
-            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4",
-            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4",
-            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
-            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4",
-            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4"
+            
+            // W3C标准测试视频（较稳定）
+            "https://media.w3.org/2010/05/sintel/trailer.mp4",
+            "http://vjs.zencdn.net/v/oceans.mp4"
         )
 
         private val sampleDescriptions = listOf(

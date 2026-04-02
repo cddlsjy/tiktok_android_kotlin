@@ -20,7 +20,6 @@ class TikTokVideoController(
     private val context: Context,
     val videoInfo: UserVideo
 ) {
-    private var _player: ExoPlayer? = null
     private val _showPauseIcon = MutableStateFlow(false)
     val showPauseIcon: StateFlow<Boolean> = _showPauseIcon.asStateFlow()
 
@@ -30,34 +29,32 @@ class TikTokVideoController(
     private var _isPrepared = false
     val isPrepared: Boolean get() = _isPrepared
 
-    val player: ExoPlayer
-        get() {
-            if (_player == null) {
-                _player = ExoPlayer.Builder(context).build().apply {
-                    val mediaItem = MediaItem.fromUri(videoInfo.url)
-                    setMediaItem(mediaItem)
-                    repeatMode = Player.REPEAT_MODE_ONE
-                    addListener(object : Player.Listener {
-                        override fun onIsPlayingChanged(isPlaying: Boolean) {
-                            _isPlaying.value = isPlaying
-                            if (isPlaying) {
-                                _showPauseIcon.value = false
-                            }
-                        }
-
-                        override fun onPlaybackStateChanged(playbackState: Int) {
-                            if (playbackState == Player.STATE_READY) {
-                                _isPrepared = true
-                            }
-                        }
-                    })
+    val player: ExoPlayer = ExoPlayer.Builder(context).build().apply {
+        val mediaItem = MediaItem.fromUri(videoInfo.url)
+        setMediaItem(mediaItem)
+        repeatMode = Player.REPEAT_MODE_ONE
+        addListener(object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                _isPlaying.value = isPlaying
+                if (isPlaying) {
+                    _showPauseIcon.value = false
                 }
             }
-            return _player!!
-        }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_READY) {
+                    _isPrepared = true
+                }
+            }
+        })
+    }
 
     fun initialize() {
-        player.prepare()
+        if (!_isPrepared) {
+            player.prepare()
+            _isPrepared = true
+        }
+        player.playWhenReady = true
     }
 
     fun play() {
@@ -80,8 +77,7 @@ class TikTokVideoController(
     }
 
     fun release() {
-        _player?.release()
-        _player = null
+        player.release()
         _isPrepared = false
     }
 

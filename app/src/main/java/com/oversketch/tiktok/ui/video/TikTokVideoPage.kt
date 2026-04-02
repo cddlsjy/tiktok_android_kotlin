@@ -10,6 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -47,10 +48,10 @@ fun TikTokVideoPage(
     val showPauseIcon by videoController.showPauseIcon.collectAsState()
 
     val context = LocalContext.current
-    val exoPlayer = videoController.player
+    val exoPlayer = remember(videoController) { videoController.player }
 
     // Initialize player
-    DisposableEffect(Unit) {
+    DisposableEffect(videoController) {
         videoController.initialize()
         onDispose { }
     }
@@ -66,13 +67,15 @@ fun TikTokVideoPage(
             AndroidView(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
-                        player = exoPlayer
                         useController = false
                         layoutParams = ViewGroup.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.MATCH_PARENT
                         )
                     }
+                },
+                update = { playerView ->
+                    playerView.player = exoPlayer
                 },
                 modifier = Modifier.fillMaxSize()
             )
