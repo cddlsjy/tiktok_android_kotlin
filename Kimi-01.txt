@@ -1,0 +1,559 @@
+我来提供针对三个关键问题的修复补丁，让这个项目成为一个完整可用的 TikTok 克隆 Demo。
+
+---
+
+修复一：HomeScreen 视频播放打通
+
+文件: `ui/screens/HomeScreen.kt`（完全重写）
+
+```kotlin
+package com.oversketch.tiktok.ui.screens
+
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.VerticalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.oversketch.tiktok.controller.TikTokVideoListController
+import com.oversketch.tiktok.controller.VideoViewModel
+import com.oversketch.tiktok.ui.components.TikTokCommentBottomSheet
+import com.oversketch.tiktok.ui.theme.ColorPlate
+import com.oversketch.tiktok.ui.video.TikTokVideoPage
+import kotlinx.coroutines.flow.collectLatest
+
+/**
+ * Home screen with working vertical video pager
+ * FIXED: Complete integration with video playback
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun HomeScreen(
+    videoController: TikTokVideoListController,
+    currentTab: Int = 0,
+    onAvatarClick: () -> Unit = {},
+    onCommentClick: () -> Unit = {},
+    onShowCommentSheet: () -> Unit = {}
+) {
+    val context = LocalContext.current
+    val pagerState = rememberPagerState(pageCount = { videoController.videoCount })
+    val coroutineScope = rememberCoroutineScope()
+
+    // Sync pager with video controller
+    LaunchedEffect(pagerState.currentPage) {
+        videoController.loadIndex(pagerState.currentPage)
+    }
+
+    // Handle page changes from controller (if any)
+    LaunchedEffect(Unit) {
+        videoController.currentIndex.collectLatest { index ->
+            if (index != pagerState.currentPage && index in 0 until videoController.videoCount) {
+                pagerState.animateScrollToPage(index)
+            }
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Video pager - NOW WORKING
+        if (videoController.videoCount > 0) {
+            VerticalPager(
+                state = pagerState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(ColorPlate.back1),
+                beyondViewportPageCount = 1 // Preload next page
+            ) { page ->
+                val player = videoController.playerOfIndex(page)
+                val isFavorite = videoController.isFavorite(page)
+
+                if (player != null) {
+                    TikTokVideoPage(
+                        videoController = player,
+                        isFavorite = isFavorite,
+                        hasBottomPadding = true,
+                        onAvatar = onAvatarClick,
+                        onFavorite = {
+                            videoController.toggleFavorite(page)
+                        },
+                        onComment = onShowCommentSheet,
+                        onShare = {
+                            // TODO: Implement share
+                        },
+                        onSingleTap = {
+                            player.togglePlayPause()
+                        }
+                    )
+                }
+            }
+        }
+
+        // Tab overlay for non-home tabs
+        if (currentTab != 0) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(ColorPlate.back1)
+            ) {
+                when (currentTab) {
+                    1 -> FollowScreen()
+                    2 -> MsgScreen()
+                    3 -> UserScreen(isSelfPage = true)
+                    else -> {}
+                }
+            }
+        }
+    }
+}
+```
+
+---
+
+修复二：TikTokScaffold 手势系统（完全重写）
+
+文件: `ui/gesture/TikTokScaffold.kt`（替换）
+
+```kotlin
+package com.oversketch.tiktok.ui.gesture
+
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.layout.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.dp
+import com.oversketch.tiktok.ui.theme.ColorPlate
+import kotlinx.coroutines.launch
+
+/**
+ * FIXED: TikTok scaffold with correct gesture handling
+ * Three-page architecture: Left (Search) - Middle (Home) - Right (User)
+ */
+enum class TikTokPagePosition {
+    LEFT, MIDDLE, RIGHT
+}
+
+@Composable
+fun TikTokScaffold(
+    modifier: Modifier = Modifier,
+    currentTab: Int = 0,
+    initialPage: TikTokPagePosition = TikTokPagePosition.MIDDLE,
+    header: @Composable () -> Unit = {},
+    tabBar: @Composable () -> Unit = {},
+    leftPage: @Composable () -> Unit = {},
+    middlePage: @Composable () -> Unit = {},
+    rightPage: @Composable () -> Unit = {},
+    enableGesture: Boolean = true,
+    onPagePositionChange: (TikTokPagePosition) -> Unit = {}
+) {
+    val configuration = LocalConfiguration.current
+    val density = LocalDensity.current
+    val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
+    val coroutineScope = rememberCoroutineScope()
+
+    // Target position (what we want to show)
+    var targetPosition by remember { mutableStateOf(initialPage) }
+
+    // Animated offset - this is the source of truth for UI
+    val animatedOffsetX = remember { Animatable(0f) }
+    val animatedOffsetY = remember { Animatable(0f) }
+
+    // Sync animation with target position
+    LaunchedEffect(targetPosition) {
+        val targetOffset = when (targetPosition) {
+            TikTokPagePosition.LEFT -> screenWidthPx
+            TikTokPagePosition.MIDDLE -> 0f
+            TikTokPagePosition.RIGHT -> -screenWidthPx
+        }
+        animatedOffsetX.animateTo(
+            targetValue = targetOffset,
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioMediumBouncy,
+                stiffness = Spring.StiffnessLow
+            )
+        )
+        onPagePositionChange(targetPosition)
+    }
+
+    // Calculate derived values from animated offset
+    val currentOffsetX by animatedOffsetX.asState()
+    val currentOffsetY by animatedOffsetY.asState()
+
+    // Scale for left page (0.88 when hidden, 1.0 when shown)
+    val leftPageScale = (0.88f + 0.12f * (currentOffsetX / screenWidthPx).coerceIn(0f, 1f))
+        .coerceAtLeast(0.88f)
+
+    // Determine which page is visually dominant (for back handling)
+    val dominantPage = when {
+        currentOffsetX > screenWidthPx * 0.3f -> TikTokPagePosition.LEFT
+        currentOffsetX < -screenWidthPx * 0.3f -> TikTokPagePosition.RIGHT
+        else -> TikTokPagePosition.MIDDLE
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .then(
+                if (enableGesture && currentTab == 0) {
+                    Modifier.pointerInput(Unit) {
+                        val velocityTracker = VelocityTracker()
+
+                        detectHorizontalDragGestures(
+                            onDragStart = { offset ->
+                                velocityTracker.resetTracking()
+                                velocityTracker.addPosition(0, offset)
+                                coroutineScope.launch {
+                                    animatedOffsetX.stop()
+                                }
+                            },
+                            onDragEnd = {
+                                val velocity = velocityTracker.calculateVelocity().x
+                                val currentX = animatedOffsetX.value
+
+                                // Velocity-based or position-based snap
+                                val newTarget = when {
+                                    // Fast swipe right -> go left (search)
+                                    velocity > 1000 && dominantPage == TikTokPagePosition.MIDDLE -> {
+                                        TikTokPagePosition.LEFT
+                                    }
+                                    // Fast swipe left -> go right (user)
+                                    velocity < -1000 && dominantPage == TikTokPagePosition.MIDDLE -> {
+                                        TikTokPagePosition.RIGHT
+                                    }
+                                    // Fast swipe left from left -> go middle
+                                    velocity < -1000 && dominantPage == TikTokPagePosition.LEFT -> {
+                                        TikTokPagePosition.MIDDLE
+                                    }
+                                    // Fast swipe right from right -> go middle
+                                    velocity > 1000 && dominantPage == TikTokPagePosition.RIGHT -> {
+                                        TikTokPagePosition.MIDDLE
+                                    }
+                                    // Position-based
+                                    currentX > screenWidthPx * 0.5f -> TikTokPagePosition.LEFT
+                                    currentX < -screenWidthPx * 0.5f -> TikTokPagePosition.RIGHT
+                                    else -> TikTokPagePosition.MIDDLE
+                                }
+
+                                targetPosition = newTarget
+                            },
+                            onHorizontalDrag = { change, dragAmount ->
+                                change.consume()
+                                velocityTracker.addPosition(change.uptimeMillis, change.position)
+
+                                val newOffset = when (targetPosition) {
+                                    TikTokPagePosition.MIDDLE -> {
+                                        (currentOffsetX + dragAmount).coerceIn(-screenWidthPx, screenWidthPx)
+                                    }
+                                    TikTokPagePosition.LEFT -> {
+                                        (currentOffsetX + dragAmount).coerceIn(0f, screenWidthPx)
+                                    }
+                                    TikTokPagePosition.RIGHT -> {
+                                        (currentOffsetX + dragAmount).coerceIn(-screenWidthPx, 0f)
+                                    }
+                                }
+
+                                coroutineScope.launch {
+                                    animatedOffsetX.snapTo(newOffset)
+                                }
+                            }
+                        )
+                    }
+                } else Modifier
+            )
+    ) {
+        // LEFT PAGE: Search (scales and fades)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    scaleX = leftPageScale
+                    scaleY = leftPageScale
+                    alpha = if (currentOffsetX > 0) 1f else 0.5f
+                }
+                .offset(x = (-screenWidthPx * 0.12f).dp) // Compensate for scale
+        ) {
+            leftPage()
+        }
+
+        // MIDDLE PAGE: Home (main content, moves with gesture)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    translationX = if (currentOffsetX > 0) {
+                        currentOffsetX // Follow finger when going left
+                    } else {
+                        currentOffsetX * 0.2f // Parallax when going right
+                    }
+                    translationY = currentOffsetY
+                }
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                header()
+                Box(modifier = Modifier.weight(1f)) {
+                    middlePage()
+                }
+                tabBar()
+            }
+        }
+
+        // RIGHT PAGE: User (slides in from right)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    translationX = screenWidthPx + currentOffsetX.coerceAtMost(0f)
+                }
+        ) {
+            rightPage()
+        }
+    }
+}
+```
+
+---
+
+修复三：TikTokApp 主入口协调
+
+文件: `ui/TikTokApp.kt`（替换）
+
+```kotlin
+package com.oversketch.tiktok.ui
+
+import android.app.Activity
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import com.oversketch.tiktok.controller.TikTokVideoListController
+import com.oversketch.tiktok.ui.components.TikTokCommentBottomSheet
+import com.oversketch.tiktok.ui.components.TikTokHeader
+import com.oversketch.tiktok.ui.components.TikTokPageTag
+import com.oversketch.tiktok.ui.components.TikTokTabBar
+import com.oversketch.tiktok.ui.gesture.TikTokPagePosition
+import com.oversketch.tiktok.ui.gesture.TikTokScaffold
+import com.oversketch.tiktok.ui.screens.*
+import com.oversketch.tiktok.ui.theme.TikTokTheme
+
+/**
+ * FIXED: Main TikTok App with working video playback and gestures
+ */
+@Composable
+fun TikTokApp() {
+    val context = LocalContext.current
+
+    // Create video controller once
+    val videoController = remember {
+        TikTokVideoListController(context)
+    }
+
+    // UI State
+    var currentTab by remember { mutableIntStateOf(0) }
+    var pagePosition by remember { mutableStateOf(TikTokPagePosition.MIDDLE) }
+    var showCommentSheet by remember { mutableStateOf(false) }
+
+    // Cleanup on dispose
+    DisposableEffect(Unit) {
+        onDispose {
+            videoController.release()
+        }
+    }
+
+    // Handle back press - return to middle page first
+    BackHandler(enabled = pagePosition != TikTokPagePosition.MIDDLE) {
+        pagePosition = TikTokPagePosition.MIDDLE
+    }
+
+    // Also handle back when on non-home tab
+    BackHandler(enabled = currentTab != 0 && pagePosition == TikTokPagePosition.MIDDLE) {
+        currentTab = 0
+    }
+
+    TikTokTheme {
+        Surface(modifier = Modifier.fillMaxSize()) {
+            TikTokScaffold(
+                currentTab = currentTab,
+                initialPage = pagePosition,
+                header = {
+                    if (currentTab == 0) {
+                        TikTokHeader(
+                            onSearch = {
+                                pagePosition = TikTokPagePosition.LEFT
+                            }
+                        )
+                    }
+                },
+                tabBar = {
+                    TikTokTabBar(
+                        current = when (currentTab) {
+                            0 -> TikTokPageTag.HOME
+                            1 -> TikTokPageTag.FOLLOW
+                            2 -> TikTokPageTag.MSG
+                            else -> TikTokPageTag.ME
+                        },
+                        hasBackground = currentTab != 0 || pagePosition != TikTokPagePosition.MIDDLE,
+                        onTabSwitch = { tag ->
+                            currentTab = when (tag) {
+                                TikTokPageTag.HOME -> 0
+                                TikTokPageTag.FOLLOW -> 1
+                                TikTokPageTag.MSG -> 2
+                                TikTokPageTag.ME -> 3
+                            }
+                            // Return to middle when switching tabs
+                            if (pagePosition != TikTokPagePosition.MIDDLE) {
+                                pagePosition = TikTokPagePosition.MIDDLE
+                            }
+                        },
+                        onAddButton = {
+                            // TODO: Open camera
+                        }
+                    )
+                },
+                leftPage = {
+                    SearchScreen(
+                        onBack = { pagePosition = TikTokPagePosition.MIDDLE }
+                    )
+                },
+                middlePage = {
+                    // FIXED: Working home screen with video playback
+                    HomeScreen(
+                        videoController = videoController,
+                        currentTab = currentTab,
+                        onAvatarClick = {
+                            pagePosition = TikTokPagePosition.RIGHT
+                        },
+                        onShowCommentSheet = {
+                            showCommentSheet = true
+                        }
+                    )
+                },
+                rightPage = {
+                    UserScreen(
+                        isSelfPage = false,
+                        canPop = true,
+                        onBack = { pagePosition = TikTokPagePosition.MIDDLE }
+                    )
+                },
+                enableGesture = currentTab == 0, // Only enable gestures on home tab
+                onPagePositionChange = { newPosition ->
+                    pagePosition = newPosition
+                    // Pause video when leaving home page
+                    if (newPosition != TikTokPagePosition.MIDDLE) {
+                        videoController.currentPlayer?.pause()
+                    } else if (currentTab == 0) {
+                        videoController.currentPlayer?.play()
+                    }
+                }
+            )
+
+            // Comment bottom sheet
+            if (showCommentSheet) {
+                TikTokCommentBottomSheet(
+                    onDismiss = { showCommentSheet = false }
+                )
+            }
+        }
+    }
+}
+```
+
+---
+
+附加修复：TikTokVideoListController 优化
+
+文件: `controller/TikTokVideoListController.kt`（关键优化）
+
+```kotlin
+// 在 init 块中立即初始化第一个视频，避免黑屏
+init {
+    val initialVideos = VideoRepository.getVideos()
+    initialVideos.forEach { video ->
+        _playerList.add(TikTokVideoController(context, video))
+    }
+    
+    // FIXED: 立即准备第一个视频，避免初始黑屏
+    if (_playerList.isNotEmpty()) {
+        _playerList[0].initialize()
+    }
+}
+
+// loadIndex 方法优化：确保平滑切换
+fun loadIndex(targetIndex: Int, reload: Boolean = false) {
+    if (!reload && _currentIndex.value == targetIndex) return
+    if (targetIndex < 0 || targetIndex >= _playerList.size) return
+
+    val oldIndex = _currentIndex.value
+    
+    // Pause previous
+    if (oldIndex in _playerList.indices && oldIndex != targetIndex) {
+        _playerList[oldIndex].apply {
+            seekToStart()
+            pause()
+        }
+    }
+
+    // Prepare and play new
+    _currentIndex.value = targetIndex
+    _playerList[targetIndex].apply {
+        if (!isPrepared) initialize()
+        play()
+    }
+
+    // Preload upcoming
+    val preloadRange = (targetIndex + 1)..(targetIndex + preloadCount)
+    preloadRange.forEach { i ->
+        if (i in _playerList.indices && !_playerList[i].isPrepared) {
+            _playerList[i].initialize()
+        }
+    }
+
+    // Release far videos
+    _playerList.forEachIndexed { index, controller ->
+        if (index < targetIndex - disposeCount || index > targetIndex + disposeCount) {
+            if (index != targetIndex) {
+                controller.release()
+            }
+        }
+    }
+
+    // Load more if needed
+    if (_playerList.size - targetIndex <= loadMoreCount + 1) {
+        loadMoreVideos()
+    }
+
+    _onIndexChanged?.invoke(targetIndex)
+}
+```
+
+---
+
+快速验证清单
+
+修复后，验证以下功能：
+
+功能	验证步骤	预期结果	
+视频播放	打开 App	第一个视频自动播放，无黑屏	
+上下滑动	在首页上下滑动	切换到下一个视频，自动播放	
+左右滑动	在首页左右滑动	左滑进入搜索页，右滑进入用户页	
+单击暂停	点击视频区域	显示暂停图标，再次点击播放	
+双击点赞	双击视频	显示爱心动画，点赞数+1	
+评论弹窗	点击评论按钮	底部弹出评论列表	
+页面切换	点击底部导航	切换到对应页面，视频暂停	
+返回手势	在非首页页面按返回	先返回首页，再退出 App	
+
+---
+
+这些修复完成后，项目应该成为一个功能完整的 TikTok 克隆 Demo。需要我针对某个特定修复展开更详细的说明吗？
