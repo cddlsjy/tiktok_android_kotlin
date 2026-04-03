@@ -16,7 +16,7 @@ class TikTokVideoListController(
     private val context: Context,
     private val loadMoreCount: Int = 1,
     private val preloadCount: Int = 2,
-    private val disposeCount: Int = 0
+    private val disposeCount: Int = 2   // ← minmax 用 2，更平滑
 ) {
     private val _playerList = mutableListOf<TikTokVideoController>()
     private val _currentIndex = MutableStateFlow(0)

@@ -59,6 +59,14 @@ fun TikTokVideoPage(
         }
     }
 
+    // 增加页面可见性控制（minmax 的 LaunchedEffect 思路）
+    val pagerState = androidx.compose.foundation.pager.LocalPagerState.current
+    val isCurrentPage = pagerState?.currentPage == pageIndex
+    LaunchedEffect(isCurrentPage) {
+        if (isCurrentPage) videoController.play()
+        else videoController.pause()
+    }
+
     Box(modifier = modifier.fillMaxSize()) {
         // Video layer
         Box(
@@ -71,17 +79,19 @@ fun TikTokVideoPage(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
                         useController = false
+                        setUseTextureView(true)   // ← deepseek 关键
+                        resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                         layoutParams = ViewGroup.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.MATCH_PARENT
                         )
-                        // 初始绑定player
                         player = exoPlayer
                     }
                 },
                 update = { playerView ->
-                    // 关键：每次重组时重新绑定player！
+                    // 强制重绑定，解决 release 后 PlayerView 残留旧实例的问题
                     if (playerView.player != exoPlayer) {
+                        playerView.player = null
                         playerView.player = exoPlayer
                     }
                 },

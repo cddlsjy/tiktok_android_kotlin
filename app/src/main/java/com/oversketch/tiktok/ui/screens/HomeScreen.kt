@@ -52,10 +52,11 @@ fun HomeScreen(
         if (videoController.videoCount > 0) {
             VerticalPager(
                 state = pagerState,
+                key = { page -> page },  // ← 关键：为每个页面指定唯一 key
                 modifier = Modifier
                     .fillMaxSize()
                     .background(ColorPlate.back1)
-            ) { page ->
+            ) {
                 val player = videoController.playerOfIndex(page)
                 val isFavorite = videoController.isFavorite(page)
 

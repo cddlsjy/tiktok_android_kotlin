@@ -29,31 +29,37 @@ class TikTokVideoController(
     private var _isPrepared = false
     val isPrepared: Boolean get() = _isPrepared
 
-    val player: ExoPlayer = ExoPlayer.Builder(context).build().apply {
-        val mediaItem = MediaItem.fromUri(videoInfo.url)
-        setMediaItem(mediaItem)
-        repeatMode = Player.REPEAT_MODE_ONE
-        addListener(object : Player.Listener {
-            override fun onIsPlayingChanged(isPlaying: Boolean) {
-                _isPlaying.value = isPlaying
-                if (isPlaying) {
-                    _showPauseIcon.value = false
-                }
-            }
+    private var _player: ExoPlayer? = null
+    val player: ExoPlayer
+        get() {
+            if (_player == null) {
+                _player = ExoPlayer.Builder(context).build().apply {
+                    val mediaItem = MediaItem.fromUri(videoInfo.url)
+                    setMediaItem(mediaItem)
+                    repeatMode = Player.REPEAT_MODE_ONE
+                    addListener(object : Player.Listener {
+                        override fun onIsPlayingChanged(isPlaying: Boolean) {
+                            _isPlaying.value = isPlaying
+                            if (isPlaying) {
+                                _showPauseIcon.value = false
+                            }
+                        }
 
-            override fun onPlaybackStateChanged(playbackState: Int) {
-                if (playbackState == Player.STATE_READY) {
-                    _isPrepared = true
+                        override fun onPlaybackStateChanged(playbackState: Int) {
+                            if (playbackState == Player.STATE_READY) {
+                                _isPrepared = true
+                            }
+                        }
+                        
+                        // 添加错误处理
+                        override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                            android.util.Log.e("TikTokVideoController", "播放错误: ${error.message}")
+                        }
+                    })
                 }
             }
-            
-            // 添加错误处理
-            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
-                android.util.Log.e("TikTokVideoController", "播放错误: ${error.message}")
-                // 可以在这里添加重试逻辑或显示错误提示
-            }
-        })
-    }
+            return _player!!
+        }
 
     fun initialize() {
         if (!_isPrepared) {
@@ -83,7 +89,8 @@ class TikTokVideoController(
     }
 
     fun release() {
-        player.release()
+        _player?.release()
+        _player = null
         _isPrepared = false
     }
 
