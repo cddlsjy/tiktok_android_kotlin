@@ -56,13 +56,14 @@ fun HomeScreen(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(ColorPlate.back1)
-            ) {
+            ) { page ->
                 val player = videoController.playerOfIndex(page)
                 val isFavorite = videoController.isFavorite(page)
 
                 if (player != null) {
                     TikTokVideoPage(
                         videoController = player,
+                        pageIndex = page,
                         isFavorite = isFavorite,
                         hasBottomPadding = true,
                         onAvatar = onAvatarClick,

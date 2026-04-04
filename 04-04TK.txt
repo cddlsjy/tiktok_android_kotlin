@@ -1,0 +1,149 @@
+你的整合修复已经基本正确，但滑动到第三个视频依然黑屏、滑回去也无法播放，问题出在 TikTokVideoPage 中对播放器实例的缓存逻辑，以及视频源本身的可用性。
+
+🔍 核心问题定位
+1. remember 缓存了错误的播放器实例
+在 TikTokVideoPage.kt 中有这行代码：
+
+kotlin
+val exoPlayer = remember(videoController) { videoController.player }
+videoController 对象在整个生命周期中保持不变。
+
+当 videoController.release() 被调用后，内部的 _player 被置空，后续访问 player 属性时会重新创建新实例。
+
+但由于 remember 的 key 没有变化（还是同一个 videoController 对象），它不会重新执行 lambda，导致 exoPlayer 一直指向最初创建的、已被释放的播放器实例。
+
+当滑动回第二个视频时，AndroidView 绑定的仍然是那个失效的播放器，因此黑屏。
+
+2. 视频源不可用
+你的 UserVideo.kt 中第三个及之后的视频使用的是 Google Storage 的地址（commondatastorage.googleapis.com），在国内网络环境下大概率无法访问。即使播放器重建成功，加载失败也会导致黑屏。
+
+🛠 解决方案
+修改 TikTokVideoPage.kt —— 移除 remember 缓存
+直接使用 videoController.player 属性（每次重组都获取最新实例），并确保 update 中正确绑定。
+
+kotlin
+// app/src/main/java/com/oversketch/tiktok/ui/video/TikTokVideoPage.kt
+
+@Composable
+fun TikTokVideoPage(
+    modifier: Modifier = Modifier,
+    videoController: TikTokVideoController,
+    pageIndex: Int = 0,
+    isFavorite: Boolean = false,
+    hasBottomPadding: Boolean = true,
+    aspectRatio: Float = 9f / 16f,
+    hidePauseIcon: Boolean = false,
+    onAvatar: () -> Unit = {},
+    onFavorite: () -> Unit = {},
+    onComment: () -> Unit = {},
+    onShare: () -> Unit = {},
+    onSingleTap: () -> Unit = {}
+) {
+    val isPlaying by videoController.isPlaying.collectAsState()
+    val showPauseIcon by videoController.showPauseIcon.collectAsState()
+
+    // ❌ 删除这行 —— 不要缓存播放器实例
+    // val exoPlayer = remember(videoController) { videoController.player }
+
+    // 初始化播放器（只调用一次，但播放器内部可能重建）
+    DisposableEffect(videoController) {
+        videoController.initialize()
+        onDispose {
+            videoController.pause()
+        }
+    }
+
+    Box(modifier = modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier.fillMaxSize().background(Color.Black),
+            contentAlignment = Alignment.Center
+        ) {
+            AndroidView(
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        useController = false
+                        resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                        layoutParams = ViewGroup.LayoutParams(
+                            ViewGroup.LayoutParams.MATCH_PARENT,
+                            ViewGroup.LayoutParams.MATCH_PARENT
+                        )
+                        // 直接绑定当前的播放器
+                        player = videoController.player
+                    }
+                },
+                update = { playerView ->
+                    // 关键：每次重组都重新绑定最新的播放器实例
+                    val currentPlayer = videoController.player
+                    if (playerView.player != currentPlayer) {
+                        playerView.player = currentPlayer
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            )
+
+            TikTokVideoGesture(
+                modifier = Modifier.fillMaxSize(),
+                onSingleTap = onSingleTap,
+                onDoubleTap = onFavorite
+            )
+
+            if (showPauseIcon && !hidePauseIcon) {
+                Icon(
+                    imageVector = Icons.Default.PlayCircleOutline,
+                    contentDescription = "暂停",
+                    tint = ColorPlate.white40,
+                    modifier = Modifier.size(120.dp)
+                )
+            }
+        }
+
+        // 右侧按钮栏、用户信息部分保持不变
+        // ...
+    }
+}
+替换视频源（全部使用可访问的地址）
+修改 UserVideo.kt，移除 Google Storage 的链接，只保留火山引擎和 W3C 的稳定测试视频：
+
+kotlin
+// app/src/main/java/com/oversketch/tiktok/data/model/UserVideo.kt
+
+private val sampleVideos = listOf(
+    "https://ark-project.tos-cn-beijing.volces.com/doc_video/ark_vlm_video_input.mp4",
+    "https://ark-project.tos-cn-beijing.volces.com/doc_video/video-understanding.mp4",
+    "https://media.w3.org/2010/05/sintel/trailer.mp4",
+    "http://vjs.zencdn.net/v/oceans.mp4",
+    "https://sample-videos.com/video321/mp4/720/big_buck_bunny_720p_1mb.mp4",
+    "https://www.learningcontainer.com/wp-content/uploads/2020/05/sample-mp4-file.mp4"
+)
+可选：增加播放器错误处理与重试
+在 TikTokVideoController 的 onPlayerError 中增加自动重试逻辑（你已经有了部分日志，可以补充）：
+
+kotlin
+override fun onPlayerError(error: PlaybackException) {
+    Log.e("TikTokVideoController", "播放错误: ${error.message}, URL: ${videoInfo.url}")
+    // 简单重试一次
+    if (!_isPrepared) {
+        Handler(Looper.getMainLooper()).postDelayed({
+            release()
+            initialize()
+            play()
+        }, 1000)
+    }
+}
+📌 为什么之前的整合方案没解决？
+播放器重建机制：TikTokVideoController 中 player 的 getter 已经正确实现了按需重建，但页面中错误地缓存了旧实例，导致重建后的播放器没有被 AndroidView 使用。
+
+释放策略：disposeCount=2 是正确的，但即使播放器没有被释放，如果绑定的实例是旧的，依然黑屏。
+
+key 和强制重绑定：HomeScreen 的 key 和 TikTokVideoPage 的 update 中的强制重绑定只在 exoPlayer 变量变化时才有效，而 exoPlayer 因为 remember 没变，所以 update 中的条件 playerView.player != exoPlayer 永远为 false（因为 exoPlayer 一直是旧的），不会执行重新绑定。
+
+✅ 修改后预期效果
+所有视频都能正常播放（只要网络能访问视频源）。
+
+滑动到第三个及以后不再黑屏。
+
+向上滑动返回之前视频也能正常播放。
+
+播放器重建后能正确附着到 PlayerView。
+
+请按上述步骤修改代码，重新编译运行，问题应该能彻底解决。如果还有黑屏，请检查 Logcat 中 TikTokVideoController 的播放错误日志，确认是否是视频源问题。

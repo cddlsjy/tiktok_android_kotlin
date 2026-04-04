@@ -1,6 +1,7 @@
 package com.oversketch.tiktok.ui.video
 
 import android.view.ViewGroup
+import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -10,15 +11,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.media3.common.Player
-import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import com.oversketch.tiktok.controller.TikTokVideoController
 import com.oversketch.tiktok.ui.components.TikTokButtonColumn
@@ -30,10 +28,12 @@ import com.oversketch.tiktok.ui.theme.ColorPlate
  * TikTok video page component
  * Mapped from Flutter's TikTokVideoPage
  */
+@OptIn(UnstableApi::class)
 @Composable
 fun TikTokVideoPage(
     modifier: Modifier = Modifier,
     videoController: TikTokVideoController,
+    pageIndex: Int = 0,
     isFavorite: Boolean = false,
     hasBottomPadding: Boolean = true,
     aspectRatio: Float = 9f / 16f,
@@ -47,24 +47,12 @@ fun TikTokVideoPage(
     val isPlaying by videoController.isPlaying.collectAsState()
     val showPauseIcon by videoController.showPauseIcon.collectAsState()
 
-    val context = LocalContext.current
-    val exoPlayer = remember(videoController) { videoController.player }
-
-    // Initialize player
+    // 初始化播放器（只调用一次，但播放器内部可能重建）
     DisposableEffect(videoController) {
         videoController.initialize()
-        onDispose { 
-            // 页面销毁时暂停，但不要release（因为controller会被复用）
+        onDispose {
             videoController.pause()
         }
-    }
-
-    // 增加页面可见性控制（minmax 的 LaunchedEffect 思路）
-    val pagerState = androidx.compose.foundation.pager.LocalPagerState.current
-    val isCurrentPage = pagerState?.currentPage == pageIndex
-    LaunchedEffect(isCurrentPage) {
-        if (isCurrentPage) videoController.play()
-        else videoController.pause()
     }
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -79,20 +67,20 @@ fun TikTokVideoPage(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
                         useController = false
-                        setUseTextureView(true)   // ← deepseek 关键
                         resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
                         layoutParams = ViewGroup.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.MATCH_PARENT
                         )
-                        player = exoPlayer
+                        // 直接绑定当前的播放器
+                        player = videoController.player
                     }
                 },
                 update = { playerView ->
-                    // 强制重绑定，解决 release 后 PlayerView 残留旧实例的问题
-                    if (playerView.player != exoPlayer) {
-                        playerView.player = null
-                        playerView.player = exoPlayer
+                    // 关键：每次重组都重新绑定最新的播放器实例
+                    val currentPlayer = videoController.player
+                    if (playerView.player != currentPlayer) {
+                        playerView.player = currentPlayer
                     }
                 },
                 modifier = Modifier.fillMaxSize()

@@ -9,20 +9,14 @@ data class UserVideo(
     val desc: String? = null
 ) {
     companion object {
-        // 更可靠的测试视频URL（多源备份）
+        // 更可靠的测试视频URL（全部使用国内或稳定可访问的源）
         private val sampleVideos = listOf(
-            // 字节跳动/火山引擎官方测试视频（国内可访问）
             "https://ark-project.tos-cn-beijing.volces.com/doc_video/ark_vlm_video_input.mp4",
             "https://ark-project.tos-cn-beijing.volces.com/doc_video/video-understanding.mp4",
-            
-            // 国际通用测试视频（Google Storage，部分网络可能无法访问）
-            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
-            "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
-            
-            // W3C标准测试视频（较稳定）
             "https://media.w3.org/2010/05/sintel/trailer.mp4",
-            "http://vjs.zencdn.net/v/oceans.mp4"
+            "http://vjs.zencdn.net/v/oceans.mp4",
+            "https://sample-videos.com/video321/mp4/720/big_buck_bunny_720p_1mb.mp4",
+            "https://www.learningcontainer.com/wp-content/uploads/2020/05/sample-mp4-file.mp4"
         )
 
         private val sampleDescriptions = listOf(
