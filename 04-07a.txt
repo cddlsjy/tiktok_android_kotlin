@@ -1,0 +1,70 @@
+好的，以下是为 trae 准备的整合修改大纲，用于将竖屏 TikTok 滑动短视频 App 改造为横屏电视直播 App。
+
+一、整体目标
+将原有竖屏、上下滑动、社交属性的短视频应用，改造为横屏、遥控器控制的 IPTV 电视直播应用。
+
+保留核心视频播放能力，替换数据源为 IPTV 直播流（M3U 列表），移除社交功能，适配电视大屏交互。
+
+二、修改步骤大纲
+1. 横屏布局适配
+修改点	说明
+AndroidManifest.xml	设置 MainActivity 的 screenOrientation="landscape"，添加 LEANBACK_LAUNCHER 类别（可选）。
+全局主题	确保 TikTokTheme 或 MaterialTheme 在横屏下背景、间距、字体大小适宜。
+移除边缘到边缘	电视上不需要 enableEdgeToEdge()，可删除或调整。
+页面结构	删除左右滑动页面（搜索页、个人页），只保留视频播放页作为主界面。
+播放器 UI	移除右侧点赞/评论/分享按钮列，移除底部用户信息栏，只保留视频画面 + 频道名称浮层。
+2. 遥控器（D-pad）控制
+修改点	说明
+焦点管理	主布局（如 Box 或 Column）设置为可聚焦，请求焦点以接收按键事件。
+按键映射	监听 KeyEvent：
+- 上下键：切换频道（对应原来的滑动切换视频）
+- 中键/OK/播放键：播放/暂停
+- 左右键：可选，实现快进/快退（±10秒）
+- 返回键：退出应用或返回上一个频道（可选）
+页面切换	原 VerticalPager 改为 HorizontalPager（或保留 VerticalPager 但用上下键控制，推荐用 HorizontalPager 适配横屏视觉）。
+状态同步	按键切换时同步更新 PagerState 和视频控制器的当前索引。
+3. IPTV 数据源替换
+修改点	说明
+新建 IptvRepository	负责从 https://iptv-org.github.io/iptv/languages/zho.m3u 获取中文 M3U 列表。
+网络请求	使用 OkHttp 单例，配置超时，在 IO 线程执行，支持取消。
+M3U 解析	正确解析 #EXTINF 行：优先提取 tvg-name 属性，否则取最后一个逗号后的内容作为频道名称；提取 group-title 用于分类（可选）。
+数据缓存	实现内存缓存（例如 6 小时有效期），避免每次启动都重新下载。
+频道数量	限制返回最多 500 个频道，避免加载过慢。
+数据转换	将解析出的频道（名称 + URL）转换为原有的 UserVideo 模型（url + 描述），或新建 Channel 模型，但播放器层只需 URL 和标题。
+错误处理	网络失败或解析失败时，使用备用本地测试视频源，确保应用不崩溃。
+4. 播放器管理层适配
+修改点	说明
+TikTokVideoListController	修改数据源为从 IptvRepository 异步获取的频道列表，动态创建播放器列表。
+生命周期管理	保留原有的 disposeCount / preloadCount 策略，避免同时加载过多播放器。
+播放器重建机制	确保 TikTokVideoController 的 player 支持释放后重新创建（已有修复）。
+HLS 支持	添加 ExoPlayer HLS 扩展依赖：androidx.media3:media3-exoplayer-hls。
+5. UI 界面简化
+修改点	说明
+删除组件	移除 TikTokButtonColumn、VideoUserInfo、评论弹窗、头像、关注等。
+新增组件	在视频画面上叠加一个半透明条，显示当前频道名称，位置在顶部或底部。
+加载状态	添加加载中指示器（如 CircularProgressIndicator）和错误提示（如“频道加载失败，正在重试”）。
+频道信息栏	可选添加频道分组切换（新闻/体育/娱乐），通过上下键进入分组模式。
+6. 依赖添加（如未存在）
+依赖	用途
+com.squareup.okhttp3:okhttp	网络请求 M3U 文件
+org.jetbrains.kotlinx:kotlinx-coroutines-android	异步解析
+androidx.media3:media3-exoplayer-hls	HLS 流支持
+三、实施顺序建议
+横屏基础：先改 AndroidManifest 和主题，确保应用横屏显示。
+
+遥控器框架：实现按键监听和简单的频道切换（使用现有测试视频列表），验证 D-pad 上下键切换视频、中键暂停/恢复。
+
+IPTV 数据集成：添加 IptvRepository，异步加载并替换数据源，测试播放真实直播流。
+
+UI 简化：删除社交元素，添加频道名称浮层，优化横屏布局。
+
+缓存与错误处理：增加缓存机制和加载失败重试逻辑，提升用户体验。
+
+四、注意事项
+直播流稳定性不可控，部分频道可能无法播放，建议在解析时过滤非 http 链接，并提供“下一个频道”的快捷重试。
+
+电视上焦点管理至关重要：确保初始焦点落在视频播放区域，方向键切换频道时不会失去焦点。
+
+原 VerticalPager 改为 HorizontalPager 后，上下键应控制页面切换（与视觉方向一致）。
+
+若需要频道分组，可扩展为按 group-title 分类，通过左右键切换分组。

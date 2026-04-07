@@ -3,7 +3,8 @@ package com.oversketch.tiktok.controller
 import android.content.Context
 import androidx.media3.exoplayer.ExoPlayer
 import com.oversketch.tiktok.data.model.UserVideo
-import com.oversketch.tiktok.data.repository.VideoRepository
+import com.oversketch.tiktok.data.repository.IptvRepository
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,12 +21,15 @@ class TikTokVideoListController(
 ) {
     private val _playerList = mutableListOf<TikTokVideoController>()
     private val _currentIndex = MutableStateFlow(0)
+    private val _isLoading = MutableStateFlow(false)
     val currentIndex: StateFlow<Int> = _currentIndex.asStateFlow()
+    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
     private val _favoriteMap = mutableMapOf<Int, Boolean>()
     val favoriteMap: Map<Int, Boolean> get() = _favoriteMap.toMap()
 
     private var _onIndexChanged: ((Int) -> Unit)? = null
+    private val coroutineScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     val videoCount: Int get() = _playerList.size
 
@@ -33,14 +37,27 @@ class TikTokVideoListController(
         get() = _playerList.getOrNull(_currentIndex.value)
 
     init {
-        val initialVideos = VideoRepository.getVideos()
-        initialVideos.forEach { video ->
-            _playerList.add(TikTokVideoController(context, video))
-        }
-        
-        // FIXED: 立即准备第一个视频，避免初始黑屏
-        if (_playerList.isNotEmpty()) {
-            _playerList[0].initialize()
+        loadIptvChannels()
+    }
+
+    private fun loadIptvChannels() {
+        coroutineScope.launch {
+            _isLoading.value = true
+            try {
+                val channels = IptvRepository.getChannels()
+                channels.forEach { video ->
+                    _playerList.add(TikTokVideoController(context, video))
+                }
+                
+                // 立即准备第一个视频，避免初始黑屏
+                if (_playerList.isNotEmpty()) {
+                    _playerList[0].initialize()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                _isLoading.value = false
+            }
         }
     }
 
@@ -95,10 +112,8 @@ class TikTokVideoListController(
     }
 
     private fun loadMoreVideos() {
-        val moreVideos = VideoRepository.loadMoreVideos()
-        moreVideos.forEach { video ->
-            _playerList.add(TikTokVideoController(context, video))
-        }
+        // IPTV频道列表是一次性获取的，不需要加载更多
+        // 如果需要刷新频道列表，可以调用loadIptvChannels()
     }
 
     fun playerOfIndex(index: Int): TikTokVideoController? {
@@ -114,6 +129,7 @@ class TikTokVideoListController(
     }
 
     fun release() {
+        coroutineScope.cancel()
         _playerList.forEach { it.release() }
         _playerList.clear()
     }

@@ -3,7 +3,10 @@ package com.oversketch.tiktok.ui.video
 import android.view.ViewGroup
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayCircleOutline
 import androidx.compose.material3.Icon
@@ -14,19 +17,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 import com.oversketch.tiktok.controller.TikTokVideoController
-import com.oversketch.tiktok.ui.components.TikTokButtonColumn
-import com.oversketch.tiktok.ui.components.VideoUserInfo
-import com.oversketch.tiktok.ui.gesture.TikTokVideoGesture
 import com.oversketch.tiktok.ui.theme.ColorPlate
 
 /**
- * TikTok video page component
- * Mapped from Flutter's TikTokVideoPage
+ * IPTV video page component
+ * Simplified for TV use
  */
 @OptIn(UnstableApi::class)
 @Composable
@@ -36,7 +35,7 @@ fun TikTokVideoPage(
     pageIndex: Int = 0,
     isFavorite: Boolean = false,
     hasBottomPadding: Boolean = true,
-    aspectRatio: Float = 9f / 16f,
+    aspectRatio: Float = 16f / 9f, // 横屏比例
     hidePauseIcon: Boolean = false,
     onAvatar: () -> Unit = {},
     onFavorite: () -> Unit = {},
@@ -44,7 +43,6 @@ fun TikTokVideoPage(
     onShare: () -> Unit = {},
     onSingleTap: () -> Unit = {}
 ) {
-    val isPlaying by videoController.isPlaying.collectAsState()
     val showPauseIcon by videoController.showPauseIcon.collectAsState()
 
     // 初始化播放器（只调用一次，但播放器内部可能重建）
@@ -86,13 +84,6 @@ fun TikTokVideoPage(
                 modifier = Modifier.fillMaxSize()
             )
 
-            // Gesture layer
-            TikTokVideoGesture(
-                modifier = Modifier.fillMaxSize(),
-                onSingleTap = onSingleTap,
-                onDoubleTap = onFavorite
-            )
-
             // Pause icon overlay
             if (showPauseIcon && !hidePauseIcon) {
                 Icon(
@@ -102,36 +93,6 @@ fun TikTokVideoPage(
                     modifier = Modifier.size(120.dp)
                 )
             }
-        }
-
-        // Right buttons
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(bottom = if (hasBottomPadding) 16.dp else 0.dp),
-            contentAlignment = Alignment.BottomEnd
-        ) {
-            TikTokButtonColumn(
-                bottomPadding = if (hasBottomPadding) 50f else 16f,
-                isFavorite = isFavorite,
-                onAvatar = onAvatar,
-                onFavorite = onFavorite,
-                onComment = onComment,
-                onShare = onShare
-            )
-        }
-
-        // User info
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(bottom = if (hasBottomPadding) 66.dp else 0.dp),
-            contentAlignment = Alignment.BottomStart
-        ) {
-            VideoUserInfo(
-                description = videoController.videoInfo.desc,
-                bottomPadding = if (hasBottomPadding) 50f else 16f
-            )
         }
     }
 }
